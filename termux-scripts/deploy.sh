@@ -84,8 +84,12 @@ install_dependencies() {
         print_success "pip 已安装: $(pip --version)"
     fi
 
-    # 安装其他工具
-    pkg install curl wget -y
+    # 安装其他工具和证书
+    pkg install curl wget ca-certificates -y
+
+    # 更新证书（重要：解决 SSL 证书问题）
+    print_info "更新 CA 证书..."
+    pkg install ca-certificates -y || true
 
     print_success "必要软件安装完成"
 }
@@ -97,8 +101,31 @@ install_python_packages() {
     # 注意: Termux 中不允许通过 pip 升级 pip，必须使用 pkg 管理
     # 如果需要更新 pip，请使用: pkg upgrade python-pip
 
-    # 安装依赖
-    pip install pillow openai requests
+    # 设置环境变量防止 pip 自动升级
+    export PIP_NO_UPGRADE=1
+
+    # 确保 PREFIX 变量已设置（Termux 环境）
+    if [ -z "$PREFIX" ]; then
+        export PREFIX="/data/data/com.termux/files/usr"
+    fi
+
+    # 尝试配置证书（如果存在）
+    CERT_FILE="$PREFIX/etc/tls/cert.pem"
+    if [ -f "$CERT_FILE" ]; then
+        export SSL_CERT_FILE="$CERT_FILE"
+        export REQUESTS_CA_BUNDLE="$CERT_FILE"
+        print_info "使用系统证书: $CERT_FILE"
+    else
+        print_warning "系统证书文件不存在，将使用 --trusted-host 参数"
+    fi
+
+    # 使用 --trusted-host 参数解决 SSL 证书问题（手机 Termux 常见问题）
+    # 这是最可靠的方法，因为手机网络环境复杂，SSL 验证经常失败
+    print_info "安装依赖包（使用 --trusted-host 绕过 SSL 验证）..."
+    pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow openai requests || {
+        print_error "安装失败，请检查网络连接"
+        exit 1
+    }
 
     print_success "Python 依赖安装完成"
 }
@@ -131,13 +158,39 @@ install_autoglm() {
 
     cd ~/Open-AutoGLM
 
+    # 设置环境变量防止 pip 自动升级
+    export PIP_NO_UPGRADE=1
+
+    # 确保 PREFIX 变量已设置（Termux 环境）
+    if [ -z "$PREFIX" ]; then
+        export PREFIX="/data/data/com.termux/files/usr"
+    fi
+
+    # 尝试配置证书（如果存在）
+    CERT_FILE="$PREFIX/etc/tls/cert.pem"
+    if [ -f "$CERT_FILE" ]; then
+        export SSL_CERT_FILE="$CERT_FILE"
+        export REQUESTS_CA_BUNDLE="$CERT_FILE"
+    fi
+
+    # 使用 --trusted-host 参数解决 SSL 证书问题（手机 Termux 常见问题）
+    PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+
     # 安装项目依赖
     if [ -f "requirements.txt" ]; then
-        pip install -r requirements.txt
+        print_info "安装项目依赖..."
+        pip install --no-warn-script-location $PIP_TRUSTED_HOST -r requirements.txt || {
+            print_error "安装项目依赖失败，请检查网络连接"
+            exit 1
+        }
     fi
 
     # 安装 phone_agent
-    pip install -e .
+    print_info "安装 phone_agent..."
+    pip install --no-warn-script-location $PIP_TRUSTED_HOST -e . || {
+        print_error "安装 phone_agent 失败，请检查网络连接"
+        exit 1
+    }
 
     print_success "Open-AutoGLM 安装完成"
 }
@@ -303,6 +356,9 @@ main() {
         print_error "此脚本必须在 Termux 中运行！"
         exit 1
     fi
+
+    # 设置环境变量防止 pip 自动升级（Termux 要求）
+    export PIP_NO_UPGRADE=1
 
     # 执行部署步骤
     check_network
