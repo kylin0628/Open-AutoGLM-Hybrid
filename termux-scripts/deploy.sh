@@ -76,14 +76,6 @@ install_dependencies() {
         print_success "Git 已安装: $(git --version)"
     fi
     
-    # 检查并安装 pip (Termux 中必须通过 pkg 安装)
-    if ! command -v pip &> /dev/null; then
-        print_info "安装 pip..."
-        pkg install python-pip -y
-    else
-        print_success "pip 已安装: $(pip --version)"
-    fi
-
     # 安装其他工具
     pkg install curl wget -y
 
@@ -94,21 +86,21 @@ install_dependencies() {
 install_python_packages() {
     print_info "安装 Python 依赖包..."
 
-    # 注意: Termux 中不允许通过 pip 升级 pip，必须使用 pkg 管理
-    # 如果需要更新 pip，请使用: pkg upgrade python-pip
-    
+    # 升级 pip
+    pip install --upgrade pip
+
     # 安装依赖
     pip install pillow openai requests
-    
+
     print_success "Python 依赖安装完成"
 }
 
 # 下载 Open-AutoGLM
 download_autoglm() {
     print_info "下载 Open-AutoGLM 项目..."
-    
+
     cd ~
-    
+
     if [ -d "Open-AutoGLM" ]; then
         print_warning "Open-AutoGLM 目录已存在"
         read -p "是否删除并重新下载? (y/n): " confirm
@@ -119,65 +111,65 @@ download_autoglm() {
             return
         fi
     fi
-    
+
     git clone https://github.com/zai-org/Open-AutoGLM.git
-    
+
     print_success "Open-AutoGLM 下载完成"
 }
 
 # 安装 Open-AutoGLM
 install_autoglm() {
     print_info "安装 Open-AutoGLM..."
-    
+
     cd ~/Open-AutoGLM
-    
+
     # 安装项目依赖
     if [ -f "requirements.txt" ]; then
         pip install -r requirements.txt
     fi
-    
+
     # 安装 phone_agent
     pip install -e .
-    
+
     print_success "Open-AutoGLM 安装完成"
 }
 
 # 下载混合方案脚本
 download_hybrid_scripts() {
     print_info "下载混合方案脚本..."
-    
+
     cd ~
-    
+
     # 创建目录
     mkdir -p ~/.autoglm
-    
+
     # 下载 phone_controller.py (自动降级逻辑)
     # 注意: 这里需要替换为实际的下载链接
     # wget -O ~/.autoglm/phone_controller.py https://your-link/phone_controller.py
-    
+
     # 暂时使用本地创建
     cat > ~/.autoglm/phone_controller.py << 'PYTHON_EOF'
 # 这个文件会在后续步骤中创建
 pass
 PYTHON_EOF
-    
+
     print_success "混合方案脚本下载完成"
 }
 
 # 配置 GRS AI
 configure_grsai() {
     print_info "配置 GRS AI..."
-    
+
     echo ""
     echo "请输入您的 GRS AI API Key:"
     read -p "API Key: " api_key
-    
+
     if [ -z "$api_key" ]; then
         print_warning "未输入 API Key，跳过配置"
         print_warning "您可以稍后手动配置: export PHONE_AGENT_API_KEY='your_key'"
         return
     fi
-    
+
     # 创建配置文件
     cat > ~/.autoglm/config.sh << EOF
 #!/data/data/com.termux/files/usr/bin/bash
@@ -190,24 +182,24 @@ export PHONE_AGENT_MODEL="gpt-4-vision-preview"
 # AutoGLM Helper 配置
 export AUTOGLM_HELPER_URL="http://localhost:8080"
 EOF
-    
+
     # 添加到 .bashrc
     if ! grep -q "source ~/.autoglm/config.sh" ~/.bashrc; then
         echo "" >> ~/.bashrc
         echo "# AutoGLM 配置" >> ~/.bashrc
         echo "source ~/.autoglm/config.sh" >> ~/.bashrc
     fi
-    
+
     # 立即加载配置
     source ~/.autoglm/config.sh
-    
+
     print_success "GRS AI 配置完成"
 }
 
 # 创建启动脚本
 create_launcher() {
     print_info "创建启动脚本..."
-    
+
     # 创建 autoglm 命令
     cat > ~/bin/autoglm << 'LAUNCHER_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
@@ -219,39 +211,39 @@ source ~/.autoglm/config.sh
 cd ~/Open-AutoGLM
 python -m phone_agent.cli
 LAUNCHER_EOF
-    
+
     chmod +x ~/bin/autoglm
-    
+
     # 确保 ~/bin 在 PATH 中
     if ! grep -q 'export PATH=$PATH:~/bin' ~/.bashrc; then
         echo 'export PATH=$PATH:~/bin' >> ~/.bashrc
     fi
-    
+
     print_success "启动脚本创建完成"
 }
 
 # 检查 AutoGLM Helper
 check_helper_app() {
     print_info "检查 AutoGLM Helper APP..."
-    
+
     echo ""
     echo "请确保您已经:"
     echo "1. 安装了 AutoGLM Helper APK"
     echo "2. 开启了无障碍服务权限"
     echo ""
-    
+
     read -p "是否已完成以上步骤? (y/n): " confirm
-    
+
     if [ "$confirm" != "y" ]; then
         print_warning "请先完成以上步骤，然后重新运行部署脚本"
         print_info "APK 文件位置: 项目根目录/AutoGLM-Helper.apk"
         print_info "安装命令: adb install AutoGLM-Helper.apk"
         exit 0
     fi
-    
+
     # 测试连接
     print_info "测试 AutoGLM Helper 连接..."
-    
+
     if curl -s http://localhost:8080/status > /dev/null 2>&1; then
         print_success "AutoGLM Helper 连接成功！"
     else
@@ -268,7 +260,7 @@ check_helper_app() {
 # 显示完成信息
 show_completion() {
     print_success "部署完成！"
-    
+
     echo ""
     echo "============================================================"
     echo "  部署成功！"
@@ -297,13 +289,13 @@ show_completion() {
 # 主函数
 main() {
     print_header
-    
+
     # 检查是否在 Termux 中运行
     if [ ! -d "/data/data/com.termux" ]; then
         print_error "此脚本必须在 Termux 中运行！"
         exit 1
     fi
-    
+
     # 执行部署步骤
     check_network
     update_packages
