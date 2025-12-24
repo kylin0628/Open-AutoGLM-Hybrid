@@ -667,6 +667,10 @@ if [ -f ~/.cargo/env ]; then
     source ~/.cargo/env
 fi
 
+# 设置全局的 PIP_TRUSTED_HOST（供所有安装函数使用）
+PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+export PIP_TRUSTED_HOST
+
 # 检查并安装 phone_agent（如果需要）
 install_phone_agent() {
     echo "正在安装 phone_agent..."
@@ -680,11 +684,11 @@ install_phone_agent() {
         export REQUESTS_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
     fi
     
-    # 使用 --trusted-host 参数解决 SSL 证书问题
-    PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+    # 使用全局的 PIP_TRUSTED_HOST
+    local trusted_host="$PIP_TRUSTED_HOST"
     
     # 尝试安装
-    if pip install --no-warn-script-location $PIP_TRUSTED_HOST -e . 2>&1; then
+    if pip install --no-warn-script-location $trusted_host -e . 2>&1; then
         return 0
     else
         return 1
@@ -790,33 +794,96 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                 echo "✓ phone_agent.cli 现在可以导入了！"
             else
                 echo ""
-                echo "错误: phone_agent.cli 模块仍然无法导入"
+                echo "警告: phone_agent.cli 模块仍然无法导入，开始自动修复..."
                 echo ""
-                echo "可能的原因:"
-                echo "  1. Open-AutoGLM 项目结构可能已更改"
-                echo "  2. cli 模块可能位于不同的位置"
-                echo "  3. Python 缓存问题"
-                echo ""
-                echo "请尝试以下解决方案:"
-                echo ""
-                echo "方案1: 清除 Python 缓存"
-                echo "  cd ~/Open-AutoGLM"
-                echo "  find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true"
-                echo "  find . -name '*.pyc' -delete 2>/dev/null || true"
-                echo ""
-                echo "方案2: 检查项目结构"
-                echo "  ls ~/Open-AutoGLM/phone_agent/"
-                echo ""
-                echo "方案3: 尝试直接运行"
-                echo "  cd ~/Open-AutoGLM"
-                echo "  python phone_agent/cli.py 2>/dev/null || python -m phone_agent.main"
-                echo ""
-                echo "方案4: 重新下载项目"
-                echo "  cd ~"
-                echo "  rm -rf Open-AutoGLM"
-                echo "  git clone https://github.com/zai-org/Open-AutoGLM.git"
-                echo "  cd Open-AutoGLM && pip install -e ."
-                exit 1
+                
+                # 自动修复方案1: 清除 Python 缓存
+                echo "方案1: 清除 Python 缓存..."
+                find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+                find . -name '*.pyc' -delete 2>/dev/null || true
+                find . -name '*.pyo' -delete 2>/dev/null || true
+                echo "缓存已清除"
+                
+                # 等待一下
+                if command -v sleep >/dev/null 2>&1; then
+                    sleep 0.5
+                else
+                    python -c "import time; time.sleep(0.5)" 2>/dev/null || true
+                fi
+                
+                # 再次检查
+                if python -c "import phone_agent.cli" 2>/dev/null; then
+                    echo "✓ 清除缓存后，phone_agent.cli 现在可以导入了！"
+                else
+                    echo "方案1 未解决问题，继续尝试方案2..."
+                    
+                    # 自动修复方案2: 检查项目结构并尝试重新安装
+                    echo "方案2: 检查项目结构并重新安装..."
+                    
+                    # 确保 PIP_TRUSTED_HOST 已设置
+                    if [ -z "$PIP_TRUSTED_HOST" ]; then
+                        PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+                    fi
+                    
+                    # 设置环境变量
+                    export PIP_NO_UPGRADE=1
+                    if [ -f "$PREFIX/etc/tls/cert.pem" ]; then
+                        export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+                        export REQUESTS_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
+                    fi
+                    
+                    # 检查是否有 cli.py 文件
+                    if [ -f "phone_agent/cli.py" ]; then
+                        echo "✓ 找到 phone_agent/cli.py"
+                        # 尝试强制重新安装
+                        pip install --no-warn-script-location $PIP_TRUSTED_HOST --force-reinstall --no-deps -e . 2>&1 | grep -E "(Successfully|error|Error)" || true
+                    elif [ -d "phone_agent/cli" ]; then
+                        echo "✓ 找到 phone_agent/cli/ 目录"
+                        # 尝试强制重新安装
+                        pip install --no-warn-script-location $PIP_TRUSTED_HOST --force-reinstall --no-deps -e . 2>&1 | grep -E "(Successfully|error|Error)" || true
+                    else
+                        echo "✗ 未找到 cli.py 或 cli/ 目录"
+                        echo "检查 phone_agent 目录内容:"
+                        ls phone_agent/*.py 2>/dev/null | head -5 || echo "  无 .py 文件"
+                        # 即使没找到，也尝试重新安装
+                        echo "尝试重新安装 phone_agent..."
+                        pip install --no-warn-script-location $PIP_TRUSTED_HOST --force-reinstall -e . 2>&1 | grep -E "(Successfully|error|Error)" || true
+                    fi
+                    
+                    # 等待一下
+                    if command -v sleep >/dev/null 2>&1; then
+                        sleep 0.5
+                    else
+                        python -c "import time; time.sleep(0.5)" 2>/dev/null || true
+                    fi
+                    
+                    # 再次检查
+                    if python -c "import phone_agent.cli" 2>/dev/null; then
+                        echo "✓ 重新安装后，phone_agent.cli 现在可以导入了！"
+                    else
+                        echo "方案2 未解决问题，继续尝试方案3..."
+                        
+                        # 自动修复方案3: 尝试使用不同的 Python 路径
+                        echo "方案3: 尝试使用系统 Python 路径..."
+                        
+                        # 检查 Python 路径
+                        PYTHON_PATH=$(python -c "import sys; print('\n'.join(sys.path))" 2>/dev/null | head -1)
+                        if [ -n "$PYTHON_PATH" ]; then
+                            echo "Python 路径: $PYTHON_PATH"
+                        fi
+                        
+                        # 尝试直接导入并查看错误
+                        echo "尝试导入 phone_agent 查看详细错误:"
+                        python -c "import phone_agent; print('phone_agent 导入成功'); import phone_agent.cli; print('phone_agent.cli 导入成功')" 2>&1 | head -10 || true
+                        
+                        # 如果还是失败，尝试检查是否有其他入口点
+                        echo ""
+                        echo "检查是否有其他启动方式..."
+                        
+                        # 这些检查会在启动部分处理，这里只记录
+                        echo "将在启动时尝试多种方式"
+                    fi
+                fi
             fi
         else
             echo ""
@@ -832,29 +899,88 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
 fi
 
 # 启动 AutoGLM
-# 尝试多种启动方式
+# 尝试多种启动方式（自动修复逻辑）
+echo "正在启动 AutoGLM..."
+
+# 方式1: 使用模块方式启动（标准方式）
 if python -c "import phone_agent.cli" 2>/dev/null; then
-    # 方式1: 使用模块方式启动
+    echo "使用标准方式启动: python -m phone_agent.cli"
     python -m phone_agent.cli
-elif [ -f "phone_agent/cli.py" ]; then
-    # 方式2: 直接运行 cli.py
-    python phone_agent/cli.py
-elif [ -f "phone_agent/main.py" ]; then
-    # 方式3: 运行 main.py
-    python -m phone_agent.main
-elif [ -f "phone_agent/__main__.py" ]; then
-    # 方式4: 使用 __main__.py
-    python -m phone_agent
-else
-    echo "错误: 无法找到 phone_agent 的启动入口"
-    echo ""
-    echo "请检查项目结构:"
-    echo "  ls ~/Open-AutoGLM/phone_agent/"
-    echo ""
-    echo "如果问题持续，请访问:"
-    echo "  https://github.com/zai-org/Open-AutoGLM"
-    exit 1
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
 fi
+
+# 方式2: 直接运行 cli.py
+if [ -f "phone_agent/cli.py" ]; then
+    echo "尝试方式2: 直接运行 cli.py"
+    python phone_agent/cli.py 2>/dev/null
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
+fi
+
+# 方式3: 运行 main.py
+if [ -f "phone_agent/main.py" ]; then
+    echo "尝试方式3: 运行 main.py"
+    python -m phone_agent.main 2>/dev/null
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
+fi
+
+# 方式4: 使用 __main__.py
+if [ -f "phone_agent/__main__.py" ]; then
+    echo "尝试方式4: 使用 __main__.py"
+    python -m phone_agent 2>/dev/null
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
+fi
+
+# 方式5: 尝试查找所有可能的入口点
+echo "尝试方式5: 查找其他入口点..."
+if [ -d "phone_agent" ]; then
+    # 查找所有可能的 Python 入口文件
+    for entry_file in phone_agent/*.py phone_agent/*/__main__.py phone_agent/*/main.py; do
+        if [ -f "$entry_file" ]; then
+            echo "尝试运行: $entry_file"
+            python "$entry_file" 2>/dev/null
+            exit_code=$?
+            if [ $exit_code -eq 0 ]; then
+                exit 0
+            fi
+        fi
+    done
+fi
+
+# 如果所有方式都失败
+echo ""
+echo "错误: 所有启动方式都失败了"
+echo ""
+echo "已尝试的修复方案:"
+echo "  1. ✓ 清除 Python 缓存"
+echo "  2. ✓ 重新安装 phone_agent"
+echo "  3. ✓ 检查项目结构"
+echo "  4. ✓ 尝试多种启动方式"
+echo ""
+echo "请检查项目结构:"
+echo "  ls ~/Open-AutoGLM/phone_agent/"
+echo ""
+echo "如果问题持续，可能需要重新下载项目:"
+echo "  cd ~"
+echo "  rm -rf Open-AutoGLM"
+echo "  git clone https://github.com/zai-org/Open-AutoGLM.git"
+echo "  cd Open-AutoGLM"
+echo "  pip install -e ."
+echo ""
+echo "或访问项目主页查看最新文档:"
+echo "  https://github.com/zai-org/Open-AutoGLM"
+exit 1
 LAUNCHER_EOF
 
     chmod +x "$HOME/bin/autoglm"
