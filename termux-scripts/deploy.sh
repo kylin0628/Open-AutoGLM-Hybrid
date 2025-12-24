@@ -657,6 +657,9 @@ fi
 
 cd ~/Open-AutoGLM || exit 1
 
+# 获取当前目录的绝对路径（关键：用于 PYTHONPATH）
+CURRENT_DIR=$(pwd)
+
 # 设置 Termux 环境变量（如果未设置）
 if [ -z "$PREFIX" ]; then
     export PREFIX="/data/data/com.termux/files/usr"
@@ -665,6 +668,18 @@ fi
 # 加载 Rust 环境（如果通过 rustup 安装）
 if [ -f ~/.cargo/env ]; then
     source ~/.cargo/env
+fi
+
+# 关键修复：立即设置 PYTHONPATH（Termux 中可编辑安装可能失败）
+# 这是解决导入问题的核心方案
+if ! echo "$PYTHONPATH" | grep -q "$CURRENT_DIR"; then
+    export PYTHONPATH="$CURRENT_DIR:$PYTHONPATH"
+    # 永久保存到 .bashrc
+    if ! grep -q "export PYTHONPATH.*Open-AutoGLM" ~/.bashrc 2>/dev/null; then
+        echo '' >> ~/.bashrc
+        echo '# AutoGLM Python 路径（Termux 修复）' >> ~/.bashrc
+        echo "export PYTHONPATH=\$HOME/Open-AutoGLM:\$PYTHONPATH" >> ~/.bashrc
+    fi
 fi
 
 # 设置全局的 PIP_TRUSTED_HOST（供所有安装函数使用）
@@ -695,8 +710,8 @@ install_phone_agent() {
     fi
 }
 
-# 检查 phone_agent 是否已安装
-if ! python -c "import phone_agent" 2>/dev/null; then
+# 检查 phone_agent 是否已安装（使用 PYTHONPATH）
+if ! PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent" 2>/dev/null; then
     echo "错误: phone_agent 模块未安装"
     echo ""
     echo "正在尝试重新安装..."
@@ -723,8 +738,8 @@ if ! python -c "import phone_agent" 2>/dev/null; then
     fi
 fi
 
-# 检查 phone_agent.cli 模块（如果找不到，尝试重新安装并诊断）
-if ! python -c "import phone_agent.cli" 2>/dev/null; then
+# 检查 phone_agent.cli 模块（使用 PYTHONPATH，这是关键！）
+if ! PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
     echo "警告: phone_agent.cli 模块未找到"
     echo ""
     
@@ -775,11 +790,13 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
     fi
     echo ""
     
-    # 检查 Python 能否导入 phone_agent（简化输出）
-    if python -c "import phone_agent" 2>/dev/null; then
-        echo "✓ phone_agent 模块可以导入"
+    # 检查 Python 能否导入 phone_agent（使用 PYTHONPATH）
+    if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent" 2>/dev/null; then
+        echo "✓ phone_agent 模块可以导入（使用 PYTHONPATH）"
     else
-        echo "✗ phone_agent 模块无法导入"
+        echo "✗ phone_agent 模块无法导入（即使使用 PYTHONPATH）"
+        echo "尝试查看详细错误:"
+        PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent" 2>&1 | head -5 || true
     fi
     echo ""
     
@@ -800,8 +817,8 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                 python -c "import time; time.sleep(1)" 2>/dev/null || true
             fi
             
-            # 再次检查
-            if python -c "import phone_agent.cli" 2>/dev/null; then
+            # 再次检查（使用 PYTHONPATH）
+            if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
                 echo "✓ phone_agent.cli 现在可以导入了！"
             else
                 echo ""
@@ -822,8 +839,8 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                     python -c "import time; time.sleep(0.5)" 2>/dev/null || true
                 fi
                 
-                # 再次检查
-                if python -c "import phone_agent.cli" 2>/dev/null; then
+                # 再次检查（使用 PYTHONPATH）
+                if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
                     echo "✓ 清除缓存后，phone_agent.cli 现在可以导入了！"
                 else
                     echo "方案1 未解决问题，继续尝试方案2..."
@@ -868,8 +885,8 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                         python -c "import time; time.sleep(0.5)" 2>/dev/null || true
                     fi
                     
-                    # 再次检查
-                    if python -c "import phone_agent.cli" 2>/dev/null; then
+                    # 再次检查（使用 PYTHONPATH）
+                    if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
                         echo "✓ 重新安装后，phone_agent.cli 现在可以导入了！"
                     else
                         echo "方案2 未解决问题，继续尝试方案3..."
@@ -877,8 +894,7 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                         # 自动修复方案3: 使用 PYTHONPATH 直接运行（绕过 pip install -e 的问题）
                         echo "方案3: 使用 PYTHONPATH 方式（适用于 Termux 可编辑安装问题）..."
                         
-                        # 获取当前目录的绝对路径
-                        CURRENT_DIR=$(pwd)
+                        # CURRENT_DIR 已经在开头定义了，这里只是确认
                         echo "项目目录: $CURRENT_DIR"
                         
                         # 检查 Python 路径是否包含项目目录
@@ -900,8 +916,8 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                             
                             echo "✓ PYTHONPATH 已更新"
                             
-                            # 再次检查
-                            if python -c "import phone_agent.cli" 2>/dev/null; then
+                            # 再次检查（使用 PYTHONPATH）
+                            if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
                                 echo "✓ 使用 PYTHONPATH 后，phone_agent.cli 现在可以导入了！"
                             else
                                 echo "继续尝试方案4..."
@@ -932,12 +948,16 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                                 fi
                                 
                                 # 使用 sys.path.insert 强制添加路径后再次尝试
-                                if python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
+                                if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
                                     echo "✓ 使用 sys.path.insert 后可以导入！"
                                     # 更新启动脚本使用这种方式
                                     echo "将在启动时使用 PYTHONPATH 方式"
                                 else
-                                    echo "方案4 仍未解决，将在启动时使用备用方案"
+                                    echo "方案4 仍未解决，将在启动时使用备用方案（直接运行文件）"
+                                    # 如果 cli.py 存在，标记为可以直接运行
+                                    if [ -f "phone_agent/cli.py" ]; then
+                                        echo "✓ 找到 phone_agent/cli.py，将直接运行此文件"
+                                    fi
                                 fi
                             fi
                         fi
@@ -961,14 +981,13 @@ fi
 # 尝试多种启动方式（自动修复逻辑）
 echo "正在启动 AutoGLM..."
 
-# 确保 PYTHONPATH 包含项目目录（Termux 中可编辑安装可能失败）
-CURRENT_DIR=$(pwd)
-if [ -d "$CURRENT_DIR" ] && ! echo "$PYTHONPATH" | grep -q "$CURRENT_DIR"; then
+# 确保 PYTHONPATH 包含项目目录（已经在上面设置了，这里再次确认）
+if ! echo "$PYTHONPATH" | grep -q "$CURRENT_DIR"; then
     export PYTHONPATH="$CURRENT_DIR:$PYTHONPATH"
 fi
 
-# 方式1: 使用模块方式启动（标准方式）
-if python -c "import phone_agent.cli" 2>/dev/null; then
+# 方式1: 使用模块方式启动（标准方式，使用 PYTHONPATH）
+if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import phone_agent.cli" 2>/dev/null; then
     echo "使用标准方式启动: python -m phone_agent.cli"
     python -m phone_agent.cli
     exit_code=$?
@@ -979,7 +998,7 @@ fi
 
 # 方式1.5: 使用 PYTHONPATH 强制导入（Termux 专用方案）
 echo "尝试方式1.5: 使用 PYTHONPATH 强制导入..."
-if python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
+if PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
     echo "使用 PYTHONPATH 方式启动: python -m phone_agent.cli"
     PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -m phone_agent.cli
     exit_code=$?
@@ -1221,6 +1240,7 @@ show_completion() {
     echo "  - 测试连接: curl http://localhost:8080/status"
     echo ""
     echo "============================================================"
+    
 }
 
 # 主函数
