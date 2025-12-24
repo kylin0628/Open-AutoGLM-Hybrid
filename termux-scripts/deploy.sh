@@ -719,25 +719,103 @@ if ! python -c "import phone_agent" 2>/dev/null; then
     fi
 fi
 
-# 检查 phone_agent.cli 模块（如果找不到，尝试重新安装）
+# 检查 phone_agent.cli 模块（如果找不到，尝试重新安装并诊断）
 if ! python -c "import phone_agent.cli" 2>/dev/null; then
     echo "警告: phone_agent.cli 模块未找到"
     echo ""
+    
+    # 详细的诊断信息
+    echo "正在诊断问题..."
+    echo ""
+    
+    # 检查 phone_agent 目录是否存在
+    if [ ! -d "phone_agent" ]; then
+        echo "错误: phone_agent 目录不存在"
+        echo "当前目录: $(pwd)"
+        echo "目录内容:"
+        # 使用兼容性更好的方式列出文件（简化输出，适合手机屏幕）
+        # 只列出前几项，避免输出过多
+        ls -1 2>/dev/null | head -10 2>/dev/null || ls 2>/dev/null | head -10 2>/dev/null || ls 2>/dev/null
+        echo ""
+        echo "请检查 Open-AutoGLM 项目是否正确下载"
+        exit 1
+    fi
+    
+    # 检查 phone_agent 目录结构（简化输出，适合手机屏幕）
+    echo "检查 phone_agent 目录..."
+    
+    # 检查是否有 cli.py 或 cli 目录
+    if [ -f "phone_agent/cli.py" ]; then
+        echo "✓ 找到 phone_agent/cli.py"
+    elif [ -d "phone_agent/cli" ]; then
+        echo "✓ 找到 phone_agent/cli/ 目录"
+        # 简化输出，只列出关键文件
+        ls phone_agent/cli/*.py 2>/dev/null | while IFS= read -r file; do
+            echo "  - $(basename "$file")"
+        done
+    else
+        echo "✗ 未找到 phone_agent/cli.py 或 phone_agent/cli/ 目录"
+        echo "phone_agent 目录内容:"
+        ls phone_agent/*.py 2>/dev/null | head -5 || echo "  无 .py 文件"
+    fi
+    echo ""
+    
+    # 检查 Python 能否导入 phone_agent（简化输出）
+    if python -c "import phone_agent" 2>/dev/null; then
+        echo "✓ phone_agent 模块可以导入"
+    else
+        echo "✗ phone_agent 模块无法导入"
+    fi
+    echo ""
+    
     echo "正在尝试重新安装 phone_agent..."
     
     if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
         if install_phone_agent; then
             echo "重新安装成功！"
+            echo ""
+            echo "重新检查模块..."
+            
+            # 等待一下让 Python 重新加载模块（使用更兼容的方式）
+            # 在 Termux 中，sleep 应该可用，但为了兼容性，使用更简单的方式
+            if command -v sleep >/dev/null 2>&1; then
+                sleep 1
+            else
+                # 如果 sleep 不可用，使用 Python 等待
+                python -c "import time; time.sleep(1)" 2>/dev/null || true
+            fi
+            
             # 再次检查
-            if ! python -c "import phone_agent.cli" 2>/dev/null; then
+            if python -c "import phone_agent.cli" 2>/dev/null; then
+                echo "✓ phone_agent.cli 现在可以导入了！"
+            else
                 echo ""
                 echo "错误: phone_agent.cli 模块仍然无法导入"
                 echo ""
-                echo "请检查 Open-AutoGLM 项目结构:"
-                echo "  ls -la ~/Open-AutoGLM/phone_agent/"
+                echo "可能的原因:"
+                echo "  1. Open-AutoGLM 项目结构可能已更改"
+                echo "  2. cli 模块可能位于不同的位置"
+                echo "  3. Python 缓存问题"
                 echo ""
-                echo "如果 phone_agent 目录不存在，请重新运行部署脚本:"
-                echo "  ./deploy.sh"
+                echo "请尝试以下解决方案:"
+                echo ""
+                echo "方案1: 清除 Python 缓存"
+                echo "  cd ~/Open-AutoGLM"
+                echo "  find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true"
+                echo "  find . -name '*.pyc' -delete 2>/dev/null || true"
+                echo ""
+                echo "方案2: 检查项目结构"
+                echo "  ls ~/Open-AutoGLM/phone_agent/"
+                echo ""
+                echo "方案3: 尝试直接运行"
+                echo "  cd ~/Open-AutoGLM"
+                echo "  python phone_agent/cli.py 2>/dev/null || python -m phone_agent.main"
+                echo ""
+                echo "方案4: 重新下载项目"
+                echo "  cd ~"
+                echo "  rm -rf Open-AutoGLM"
+                echo "  git clone https://github.com/zai-org/Open-AutoGLM.git"
+                echo "  cd Open-AutoGLM && pip install -e ."
                 exit 1
             fi
         else
@@ -754,7 +832,29 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
 fi
 
 # 启动 AutoGLM
-python -m phone_agent.cli
+# 尝试多种启动方式
+if python -c "import phone_agent.cli" 2>/dev/null; then
+    # 方式1: 使用模块方式启动
+    python -m phone_agent.cli
+elif [ -f "phone_agent/cli.py" ]; then
+    # 方式2: 直接运行 cli.py
+    python phone_agent/cli.py
+elif [ -f "phone_agent/main.py" ]; then
+    # 方式3: 运行 main.py
+    python -m phone_agent.main
+elif [ -f "phone_agent/__main__.py" ]; then
+    # 方式4: 使用 __main__.py
+    python -m phone_agent
+else
+    echo "错误: 无法找到 phone_agent 的启动入口"
+    echo ""
+    echo "请检查项目结构:"
+    echo "  ls ~/Open-AutoGLM/phone_agent/"
+    echo ""
+    echo "如果问题持续，请访问:"
+    echo "  https://github.com/zai-org/Open-AutoGLM"
+    exit 1
+fi
 LAUNCHER_EOF
 
     chmod +x "$HOME/bin/autoglm"
