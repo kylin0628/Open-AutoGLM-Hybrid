@@ -648,15 +648,71 @@ if [ -f ~/.autoglm/config.sh ]; then
     source ~/.autoglm/config.sh
 fi
 
-# 启动 AutoGLM
-if [ -d ~/Open-AutoGLM ]; then
-    cd ~/Open-AutoGLM || exit 1
-    python -m phone_agent.cli
-else
+# 检查 Open-AutoGLM 目录
+if [ ! -d ~/Open-AutoGLM ]; then
     echo "错误: Open-AutoGLM 目录不存在"
     echo "请先运行部署脚本: ./deploy.sh"
     exit 1
 fi
+
+cd ~/Open-AutoGLM || exit 1
+
+# 检查 phone_agent 是否已安装
+if ! python -c "import phone_agent" 2>/dev/null; then
+    echo "错误: phone_agent 模块未安装"
+    echo ""
+    echo "正在尝试重新安装..."
+    
+    # 确保在正确的目录
+    if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
+        # 设置环境变量
+        export PIP_NO_UPGRADE=1
+        
+        # 尝试配置证书（如果存在）
+        if [ -n "$PREFIX" ] && [ -f "$PREFIX/etc/tls/cert.pem" ]; then
+            export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+            export REQUESTS_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
+        fi
+        
+        # 使用 --trusted-host 参数解决 SSL 证书问题
+        PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+        
+        # 尝试重新安装
+        echo "正在安装 phone_agent..."
+        if pip install --no-warn-script-location $PIP_TRUSTED_HOST -e . 2>&1; then
+            echo "安装成功！"
+        else
+            echo ""
+            echo "安装失败。请手动运行以下命令:"
+            echo "  cd ~/Open-AutoGLM"
+            echo "  pip install -e ."
+            echo ""
+            echo "如果仍然失败，请检查:"
+            echo "  1. 网络连接是否正常"
+            echo "  2. Python 环境是否正确"
+            exit 1
+        fi
+    else
+        echo "错误: 在 Open-AutoGLM 目录中找不到 setup.py 或 pyproject.toml"
+        echo "请检查项目是否正确下载"
+        exit 1
+    fi
+fi
+
+# 检查 phone_agent.cli 模块
+if ! python -c "import phone_agent.cli" 2>/dev/null; then
+    echo "错误: phone_agent.cli 模块未找到"
+    echo ""
+    echo "请检查 Open-AutoGLM 项目结构:"
+    echo "  ls -la ~/Open-AutoGLM/phone_agent/"
+    echo ""
+    echo "如果 phone_agent 目录不存在，请重新运行部署脚本:"
+    echo "  ./deploy.sh"
+    exit 1
+fi
+
+# 启动 AutoGLM
+python -m phone_agent.cli
 LAUNCHER_EOF
 
     chmod +x "$HOME/bin/autoglm"
@@ -766,9 +822,16 @@ show_completion() {
     echo "  - 如果提示 'command not found':"
     echo "    运行: export PATH=\$PATH:\$HOME/bin"
     echo "    或重新打开 Termux 终端"
+    echo "  - 如果提示 'No module named phone_agent.cli':"
+    echo "    运行修复脚本: bash ~/termux-scripts/fix_phone_agent.sh"
+    echo "    或手动安装: cd ~/Open-AutoGLM && pip install -e ."
     echo "  - 检查 AutoGLM Helper 是否运行"
     echo "  - 检查无障碍权限是否开启"
     echo "  - 测试连接: curl http://localhost:8080/status"
+    echo ""
+    echo "修复脚本位置:"
+    echo "  - 修复 autoglm 命令: bash ~/termux-scripts/fix_autoglm.sh"
+    echo "  - 修复 phone_agent: bash ~/termux-scripts/fix_phone_agent.sh"
     echo ""
     echo "============================================================"
     echo ""
