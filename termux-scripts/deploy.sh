@@ -657,6 +657,40 @@ fi
 
 cd ~/Open-AutoGLM || exit 1
 
+# 设置 Termux 环境变量（如果未设置）
+if [ -z "$PREFIX" ]; then
+    export PREFIX="/data/data/com.termux/files/usr"
+fi
+
+# 加载 Rust 环境（如果通过 rustup 安装）
+if [ -f ~/.cargo/env ]; then
+    source ~/.cargo/env
+fi
+
+# 检查并安装 phone_agent（如果需要）
+install_phone_agent() {
+    echo "正在安装 phone_agent..."
+    
+    # 设置环境变量
+    export PIP_NO_UPGRADE=1
+    
+    # 尝试配置证书（如果存在）
+    if [ -f "$PREFIX/etc/tls/cert.pem" ]; then
+        export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+        export REQUESTS_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
+    fi
+    
+    # 使用 --trusted-host 参数解决 SSL 证书问题
+    PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+    
+    # 尝试安装
+    if pip install --no-warn-script-location $PIP_TRUSTED_HOST -e . 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # 检查 phone_agent 是否已安装
 if ! python -c "import phone_agent" 2>/dev/null; then
     echo "错误: phone_agent 模块未安装"
@@ -665,21 +699,7 @@ if ! python -c "import phone_agent" 2>/dev/null; then
     
     # 确保在正确的目录
     if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
-        # 设置环境变量
-        export PIP_NO_UPGRADE=1
-        
-        # 尝试配置证书（如果存在）
-        if [ -n "$PREFIX" ] && [ -f "$PREFIX/etc/tls/cert.pem" ]; then
-            export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
-            export REQUESTS_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
-        fi
-        
-        # 使用 --trusted-host 参数解决 SSL 证书问题
-        PIP_TRUSTED_HOST="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
-        
-        # 尝试重新安装
-        echo "正在安装 phone_agent..."
-        if pip install --no-warn-script-location $PIP_TRUSTED_HOST -e . 2>&1; then
+        if install_phone_agent; then
             echo "安装成功！"
         else
             echo ""
@@ -699,16 +719,38 @@ if ! python -c "import phone_agent" 2>/dev/null; then
     fi
 fi
 
-# 检查 phone_agent.cli 模块
+# 检查 phone_agent.cli 模块（如果找不到，尝试重新安装）
 if ! python -c "import phone_agent.cli" 2>/dev/null; then
-    echo "错误: phone_agent.cli 模块未找到"
+    echo "警告: phone_agent.cli 模块未找到"
     echo ""
-    echo "请检查 Open-AutoGLM 项目结构:"
-    echo "  ls -la ~/Open-AutoGLM/phone_agent/"
-    echo ""
-    echo "如果 phone_agent 目录不存在，请重新运行部署脚本:"
-    echo "  ./deploy.sh"
-    exit 1
+    echo "正在尝试重新安装 phone_agent..."
+    
+    if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
+        if install_phone_agent; then
+            echo "重新安装成功！"
+            # 再次检查
+            if ! python -c "import phone_agent.cli" 2>/dev/null; then
+                echo ""
+                echo "错误: phone_agent.cli 模块仍然无法导入"
+                echo ""
+                echo "请检查 Open-AutoGLM 项目结构:"
+                echo "  ls -la ~/Open-AutoGLM/phone_agent/"
+                echo ""
+                echo "如果 phone_agent 目录不存在，请重新运行部署脚本:"
+                echo "  ./deploy.sh"
+                exit 1
+            fi
+        else
+            echo ""
+            echo "重新安装失败。请手动运行:"
+            echo "  cd ~/Open-AutoGLM"
+            echo "  pip install -e ."
+            exit 1
+        fi
+    else
+        echo "错误: 在 Open-AutoGLM 目录中找不到 setup.py 或 pyproject.toml"
+        exit 1
+    fi
 fi
 
 # 启动 AutoGLM
@@ -823,15 +865,11 @@ show_completion() {
     echo "    运行: export PATH=\$PATH:\$HOME/bin"
     echo "    或重新打开 Termux 终端"
     echo "  - 如果提示 'No module named phone_agent.cli':"
-    echo "    运行修复脚本: bash ~/termux-scripts/fix_phone_agent.sh"
+    echo "    autoglm 命令会自动尝试重新安装"
     echo "    或手动安装: cd ~/Open-AutoGLM && pip install -e ."
     echo "  - 检查 AutoGLM Helper 是否运行"
     echo "  - 检查无障碍权限是否开启"
     echo "  - 测试连接: curl http://localhost:8080/status"
-    echo ""
-    echo "修复脚本位置:"
-    echo "  - 修复 autoglm 命令: bash ~/termux-scripts/fix_autoglm.sh"
-    echo "  - 修复 phone_agent: bash ~/termux-scripts/fix_phone_agent.sh"
     echo ""
     echo "============================================================"
     echo ""
