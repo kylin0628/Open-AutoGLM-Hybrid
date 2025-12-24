@@ -1221,7 +1221,6 @@ show_completion() {
     echo "  - 测试连接: curl http://localhost:8080/status"
     echo ""
     echo "============================================================"
-    echo ""
 }
 
 # 主函数
