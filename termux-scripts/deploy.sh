@@ -151,6 +151,32 @@ install_dependencies() {
     print_success "必要软件安装完成"
 }
 
+# 安装 Pillow 所需的系统依赖（图像处理库）
+install_pillow_dependencies() {
+    print_info "安装 Pillow 所需的系统依赖..."
+    
+    # Pillow 需要这些库来编译：
+    # - libjpeg-turbo: JPEG 支持
+    # - libpng: PNG 支持
+    # - freetype: 字体渲染
+    # - libwebp: WebP 支持
+    # - openjpeg: JPEG 2000 支持
+    # - zlib: 压缩支持
+    
+    print_info "安装图像处理库依赖..."
+    if pkg install libjpeg-turbo libpng freetype libwebp openjpeg zlib -y; then
+        print_success "Pillow 依赖安装完成"
+        return 0
+    else
+        print_warning "部分 Pillow 依赖安装失败，但继续尝试..."
+        # 尝试安装最基础的依赖
+        pkg install libjpeg-turbo libpng zlib -y || {
+            print_warning "基础依赖安装失败，Pillow 可能无法编译"
+        }
+        return 1
+    fi
+}
+
 # 安装 Rust 工具链（用于编译需要 Rust 的 Python 包，如 jiter）
 install_rust() {
     print_info "检查 Rust 工具链..."
@@ -248,13 +274,67 @@ install_python_packages() {
         print_warning "系统证书文件不存在，将使用 --trusted-host 参数"
     fi
 
+    # 确保临时目录存在
+    mkdir -p "$HOME/tmp"
+    
+    # 先安装 Pillow 所需的系统依赖
+    install_pillow_dependencies || {
+        print_warning "Pillow 依赖安装失败，但继续尝试安装 Python 包..."
+    }
+
     # 使用 --trusted-host 参数解决 SSL 证书问题（手机 Termux 常见问题）
     # 这是最可靠的方法，因为手机网络环境复杂，SSL 验证经常失败
     print_info "安装依赖包（使用 --trusted-host 绕过 SSL 验证）..."
-    pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow openai requests || {
-        print_error "安装失败，请检查网络连接"
-        exit 1
-    }
+    
+    # 尝试安装，如果失败则检查是否是 Pillow 问题
+    PIP_BASIC_LOG="$HOME/tmp/pip_basic_install.log"
+    if command -v tee &> /dev/null; then
+        if ! pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow openai requests 2>&1 | tee "$PIP_BASIC_LOG"; then
+            PIP_BASIC_FAILED=1
+        fi
+    else
+        if ! pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow openai requests > "$PIP_BASIC_LOG" 2>&1; then
+            PIP_BASIC_FAILED=1
+            cat "$PIP_BASIC_LOG"
+        fi
+    fi
+    
+    if [ "${PIP_BASIC_FAILED:-0}" = "1" ]; then
+        print_error "基础依赖安装失败"
+        
+        # 检查是否是 Pillow 问题
+        if grep -qi "pillow\|jpeg\|RequiredDependencyException" "$PIP_BASIC_LOG" 2>/dev/null; then
+            print_error "检测到 Pillow 构建错误"
+            print_info "正在尝试安装 Pillow 系统依赖..."
+            
+            if install_pillow_dependencies; then
+                print_info "重新尝试安装..."
+                if pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow openai requests; then
+                    print_success "依赖安装成功"
+                else
+                    print_error "即使安装了依赖，安装仍然失败"
+                    print_info "尝试使用预编译的 Pillow..."
+                    # 尝试只安装二进制包
+                    pip install --only-binary=pillow --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pillow || {
+                        print_error "Pillow 安装失败，请检查错误日志: $PIP_BASIC_LOG"
+                        exit 1
+                    }
+                    # 继续安装其他包
+                    pip install --no-warn-script-location --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org openai requests || {
+                        print_error "其他依赖安装失败"
+                        exit 1
+                    }
+                fi
+            else
+                print_error "Pillow 依赖安装失败"
+                print_info "请手动安装: pkg install libjpeg-turbo libpng freetype"
+                exit 1
+            fi
+        else
+            print_error "安装失败，请检查网络连接和错误日志: $PIP_BASIC_LOG"
+            exit 1
+        fi
+    fi
 
     print_success "Python 依赖安装完成"
 }
@@ -381,8 +461,34 @@ install_autoglm() {
                     print_info "然后重新运行此脚本"
                     exit 1
                 fi
+            # 检查是否是 Pillow 相关错误
+            elif grep -qi "pillow\|jpeg\|RequiredDependencyException" "$LOG_FILE" 2>/dev/null; then
+                print_error "检测到 Pillow 构建错误"
+                print_info "Pillow 需要系统库来编译（如 libjpeg-turbo）"
+                print_info "正在尝试安装 Pillow 依赖..."
+                
+                if install_pillow_dependencies; then
+                    print_info "重新尝试安装依赖..."
+                    if pip install --no-warn-script-location $PIP_TRUSTED_HOST -r requirements.txt; then
+                        print_success "依赖安装成功"
+                    else
+                        print_error "即使安装了 Pillow 依赖，依赖安装仍然失败"
+                        print_info "请检查错误日志: $LOG_FILE"
+                        print_info "提示: 可以尝试使用预编译的 Pillow wheel: pip install --only-binary=pillow pillow"
+                        exit 1
+                    fi
+                else
+                    print_error "Pillow 依赖安装失败"
+                    print_info "请手动安装: pkg install libjpeg-turbo libpng freetype"
+                    print_info "然后重新运行此脚本"
+                    exit 1
+                fi
             else
                 print_error "请检查网络连接和错误日志: $LOG_FILE"
+                print_info "常见问题:"
+                print_info "  - 网络连接问题"
+                print_info "  - 缺少系统依赖（检查日志中的 RequiredDependencyException）"
+                print_info "  - 编译工具缺失"
                 exit 1
             fi
         fi
@@ -430,6 +536,23 @@ install_autoglm() {
                 fi
             else
                 print_error "Rust 安装失败，无法继续"
+                exit 1
+            fi
+        elif grep -qi "pillow\|jpeg\|RequiredDependencyException" "$AGENT_LOG_FILE" 2>/dev/null; then
+            print_error "检测到 Pillow 构建错误"
+            print_info "正在尝试安装 Pillow 依赖..."
+            
+            if install_pillow_dependencies; then
+                print_info "重新尝试安装 phone_agent..."
+                if pip install --no-warn-script-location $PIP_TRUSTED_HOST -e .; then
+                    print_success "phone_agent 安装成功"
+                else
+                    print_error "即使安装了 Pillow 依赖，phone_agent 安装仍然失败"
+                    print_info "请检查错误日志: $AGENT_LOG_FILE"
+                    exit 1
+                fi
+            else
+                print_error "Pillow 依赖安装失败，无法继续"
                 exit 1
             fi
         else
@@ -627,6 +750,7 @@ main() {
     check_network
     update_packages
     install_dependencies
+    install_pillow_dependencies  # 提前安装 Pillow 依赖
     install_rust  # 提前安装 Rust，避免后续安装失败
     install_python_packages
     download_autoglm
