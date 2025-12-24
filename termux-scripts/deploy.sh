@@ -633,8 +633,14 @@ EOF
 create_launcher() {
     print_info "创建启动脚本..."
 
+    # 确保 bin 目录存在
+    mkdir -p "$HOME/bin" 2>/dev/null || {
+        print_error "无法创建 $HOME/bin 目录"
+        exit 1
+    }
+
     # 创建 autoglm 命令
-    cat > ~/bin/autoglm << 'LAUNCHER_EOF'
+    cat > "$HOME/bin/autoglm" << 'LAUNCHER_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 
 # 加载配置（如果存在）
@@ -653,14 +659,29 @@ else
 fi
 LAUNCHER_EOF
 
-    chmod +x ~/bin/autoglm
+    chmod +x "$HOME/bin/autoglm"
 
     # 确保 ~/bin 在 PATH 中（使用 $HOME 而不是 ~）
     if ! grep -q "export PATH=\$PATH:\$HOME/bin" ~/.bashrc 2>/dev/null; then
+        echo '' >> ~/.bashrc
+        echo '# AutoGLM 命令路径' >> ~/.bashrc
         echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
     fi
 
-    print_success "启动脚本创建完成"
+    # 立即将 ~/bin 添加到当前会话的 PATH
+    if ! echo "$PATH" | grep -q "$HOME/bin"; then
+        export PATH="$PATH:$HOME/bin"
+    fi
+
+    # 验证命令是否可用
+    if command -v autoglm &> /dev/null; then
+        print_success "启动脚本创建完成，命令已可用"
+    else
+        print_warning "启动脚本已创建，但命令暂时不可用"
+        print_info "请运行以下命令使其生效:"
+        print_info "  export PATH=\$PATH:\$HOME/bin"
+        print_info "或者重新打开 Termux 终端"
+    fi
 }
 
 # 检查 AutoGLM Helper
@@ -723,7 +744,28 @@ show_completion() {
     echo "启动命令:"
     echo "  autoglm"
     echo ""
+    
+    # 检查 autoglm 命令是否可用
+    if ! command -v autoglm &> /dev/null; then
+        echo "⚠️  注意: autoglm 命令当前不可用"
+        echo ""
+        echo "请执行以下命令之一来修复:"
+        echo "  方法1 (推荐): 重新打开 Termux 终端"
+        echo "  方法2: 运行以下命令:"
+        echo "    export PATH=\$PATH:\$HOME/bin"
+        echo "  方法3: 手动加载配置:"
+        echo "    source ~/.bashrc"
+        echo ""
+        echo "验证命令是否可用:"
+        echo "  which autoglm"
+        echo "  应该显示: $HOME/bin/autoglm"
+        echo ""
+    fi
+    
     echo "故障排除:"
+    echo "  - 如果提示 'command not found':"
+    echo "    运行: export PATH=\$PATH:\$HOME/bin"
+    echo "    或重新打开 Termux 终端"
     echo "  - 检查 AutoGLM Helper 是否运行"
     echo "  - 检查无障碍权限是否开启"
     echo "  - 测试连接: curl http://localhost:8080/status"
