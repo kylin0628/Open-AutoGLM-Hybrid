@@ -748,11 +748,22 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
     # 检查 phone_agent 目录结构（简化输出，适合手机屏幕）
     echo "检查 phone_agent 目录..."
     
+    # 确保 phone_agent 是一个有效的 Python 包（创建 __init__.py 如果不存在）
+    if [ ! -f "phone_agent/__init__.py" ]; then
+        echo "创建 phone_agent/__init__.py..."
+        touch phone_agent/__init__.py
+    fi
+    
     # 检查是否有 cli.py 或 cli 目录
     if [ -f "phone_agent/cli.py" ]; then
         echo "✓ 找到 phone_agent/cli.py"
     elif [ -d "phone_agent/cli" ]; then
         echo "✓ 找到 phone_agent/cli/ 目录"
+        # 确保 cli 目录有 __init__.py
+        if [ ! -f "phone_agent/cli/__init__.py" ]; then
+            echo "创建 phone_agent/cli/__init__.py..."
+            touch phone_agent/cli/__init__.py
+        fi
         # 简化输出，只列出关键文件
         ls phone_agent/cli/*.py 2>/dev/null | while IFS= read -r file; do
             echo "  - $(basename "$file")"
@@ -863,25 +874,73 @@ if ! python -c "import phone_agent.cli" 2>/dev/null; then
                     else
                         echo "方案2 未解决问题，继续尝试方案3..."
                         
-                        # 自动修复方案3: 尝试使用不同的 Python 路径
-                        echo "方案3: 尝试使用系统 Python 路径..."
+                        # 自动修复方案3: 使用 PYTHONPATH 直接运行（绕过 pip install -e 的问题）
+                        echo "方案3: 使用 PYTHONPATH 方式（适用于 Termux 可编辑安装问题）..."
                         
-                        # 检查 Python 路径
-                        PYTHON_PATH=$(python -c "import sys; print('\n'.join(sys.path))" 2>/dev/null | head -1)
-                        if [ -n "$PYTHON_PATH" ]; then
-                            echo "Python 路径: $PYTHON_PATH"
+                        # 获取当前目录的绝对路径
+                        CURRENT_DIR=$(pwd)
+                        echo "项目目录: $CURRENT_DIR"
+                        
+                        # 检查 Python 路径是否包含项目目录
+                        if python -c "import sys; sys.exit(0 if '$CURRENT_DIR' in sys.path else 1)" 2>/dev/null; then
+                            echo "✓ 项目目录已在 Python 路径中"
+                        else
+                            echo "✗ 项目目录不在 Python 路径中，这是问题所在！"
+                            echo "正在修复：将项目目录添加到 PYTHONPATH..."
+                            
+                            # 将项目目录添加到 PYTHONPATH（当前会话）
+                            export PYTHONPATH="$CURRENT_DIR:$PYTHONPATH"
+                            
+                            # 也添加到 .bashrc（永久）
+                            if ! grep -q "export PYTHONPATH.*Open-AutoGLM" ~/.bashrc 2>/dev/null; then
+                                echo '' >> ~/.bashrc
+                                echo '# AutoGLM Python 路径' >> ~/.bashrc
+                                echo "export PYTHONPATH=\$HOME/Open-AutoGLM:\$PYTHONPATH" >> ~/.bashrc
+                            fi
+                            
+                            echo "✓ PYTHONPATH 已更新"
+                            
+                            # 再次检查
+                            if python -c "import phone_agent.cli" 2>/dev/null; then
+                                echo "✓ 使用 PYTHONPATH 后，phone_agent.cli 现在可以导入了！"
+                            else
+                                echo "继续尝试方案4..."
+                                
+                                # 自动修复方案4: 检查实际的模块结构
+                                echo "方案4: 深入检查模块结构..."
+                                
+                                # 尝试直接导入并查看详细错误
+                                echo "尝试导入 phone_agent 查看详细错误:"
+                                python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent; print('phone_agent 导入成功')" 2>&1 || true
+                                
+                                # 检查 phone_agent 目录下是否有 __init__.py
+                                if [ ! -f "phone_agent/__init__.py" ]; then
+                                    echo "警告: phone_agent/__init__.py 不存在，创建它..."
+                                    touch phone_agent/__init__.py
+                                fi
+                                
+                                # 检查 cli 模块的实际位置
+                                if [ -f "phone_agent/cli.py" ]; then
+                                    echo "✓ 找到 phone_agent/cli.py，检查内容..."
+                                    # 检查文件是否有语法错误
+                                    python -m py_compile phone_agent/cli.py 2>&1 && echo "✓ cli.py 语法正确" || echo "✗ cli.py 有语法错误"
+                                elif [ -d "phone_agent/cli" ]; then
+                                    if [ ! -f "phone_agent/cli/__init__.py" ]; then
+                                        echo "警告: phone_agent/cli/__init__.py 不存在，创建它..."
+                                        touch phone_agent/cli/__init__.py
+                                    fi
+                                fi
+                                
+                                # 使用 sys.path.insert 强制添加路径后再次尝试
+                                if python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
+                                    echo "✓ 使用 sys.path.insert 后可以导入！"
+                                    # 更新启动脚本使用这种方式
+                                    echo "将在启动时使用 PYTHONPATH 方式"
+                                else
+                                    echo "方案4 仍未解决，将在启动时使用备用方案"
+                                fi
+                            fi
                         fi
-                        
-                        # 尝试直接导入并查看错误
-                        echo "尝试导入 phone_agent 查看详细错误:"
-                        python -c "import phone_agent; print('phone_agent 导入成功'); import phone_agent.cli; print('phone_agent.cli 导入成功')" 2>&1 | head -10 || true
-                        
-                        # 如果还是失败，尝试检查是否有其他入口点
-                        echo ""
-                        echo "检查是否有其他启动方式..."
-                        
-                        # 这些检查会在启动部分处理，这里只记录
-                        echo "将在启动时尝试多种方式"
                     fi
                 fi
             fi
@@ -902,6 +961,12 @@ fi
 # 尝试多种启动方式（自动修复逻辑）
 echo "正在启动 AutoGLM..."
 
+# 确保 PYTHONPATH 包含项目目录（Termux 中可编辑安装可能失败）
+CURRENT_DIR=$(pwd)
+if [ -d "$CURRENT_DIR" ] && ! echo "$PYTHONPATH" | grep -q "$CURRENT_DIR"; then
+    export PYTHONPATH="$CURRENT_DIR:$PYTHONPATH"
+fi
+
 # 方式1: 使用模块方式启动（标准方式）
 if python -c "import phone_agent.cli" 2>/dev/null; then
     echo "使用标准方式启动: python -m phone_agent.cli"
@@ -912,9 +977,26 @@ if python -c "import phone_agent.cli" 2>/dev/null; then
     fi
 fi
 
-# 方式2: 直接运行 cli.py
+# 方式1.5: 使用 PYTHONPATH 强制导入（Termux 专用方案）
+echo "尝试方式1.5: 使用 PYTHONPATH 强制导入..."
+if python -c "import sys; sys.path.insert(0, '$CURRENT_DIR'); import phone_agent.cli" 2>/dev/null; then
+    echo "使用 PYTHONPATH 方式启动: python -m phone_agent.cli"
+    PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python -m phone_agent.cli
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
+fi
+
+# 方式2: 直接运行 cli.py（使用 PYTHONPATH）
 if [ -f "phone_agent/cli.py" ]; then
     echo "尝试方式2: 直接运行 cli.py"
+    PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python phone_agent/cli.py 2>/dev/null
+    exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
+    # 如果失败，尝试不使用 PYTHONPATH（某些情况下可能需要）
     python phone_agent/cli.py 2>/dev/null
     exit_code=$?
     if [ $exit_code -eq 0 ]; then
@@ -942,13 +1024,20 @@ if [ -f "phone_agent/__main__.py" ]; then
     fi
 fi
 
-# 方式5: 尝试查找所有可能的入口点
+# 方式5: 尝试查找所有可能的入口点（使用 PYTHONPATH）
 echo "尝试方式5: 查找其他入口点..."
 if [ -d "phone_agent" ]; then
     # 查找所有可能的 Python 入口文件
     for entry_file in phone_agent/*.py phone_agent/*/__main__.py phone_agent/*/main.py; do
         if [ -f "$entry_file" ]; then
             echo "尝试运行: $entry_file"
+            # 先尝试使用 PYTHONPATH
+            PYTHONPATH="$CURRENT_DIR:$PYTHONPATH" python "$entry_file" 2>/dev/null
+            exit_code=$?
+            if [ $exit_code -eq 0 ]; then
+                exit 0
+            fi
+            # 再尝试不使用 PYTHONPATH
             python "$entry_file" 2>/dev/null
             exit_code=$?
             if [ $exit_code -eq 0 ]; then
@@ -956,6 +1045,40 @@ if [ -d "phone_agent" ]; then
             fi
         fi
     done
+fi
+
+# 方式6: 最后的尝试 - 直接使用 sys.path 修改（最可靠的方式）
+echo "尝试方式6: 使用 sys.path 直接修改..."
+if [ -f "phone_agent/cli.py" ] || [ -d "phone_agent/cli" ]; then
+    # 创建一个临时启动脚本
+    cat > /tmp/autoglm_start.py << PYEOF
+import sys
+import os
+sys.path.insert(0, '$CURRENT_DIR')
+try:
+    if os.path.exists('$CURRENT_DIR/phone_agent/cli.py'):
+        import phone_agent.cli
+        # 如果 cli 是一个模块，尝试运行它
+        if hasattr(phone_agent.cli, 'main'):
+            phone_agent.cli.main()
+        else:
+            # 尝试作为脚本运行
+            exec(open('$CURRENT_DIR/phone_agent/cli.py').read())
+    elif os.path.isdir('$CURRENT_DIR/phone_agent/cli'):
+        from phone_agent import cli
+        if hasattr(cli, 'main'):
+            cli.main()
+except Exception as e:
+    print(f"错误: {e}")
+    import traceback
+    traceback.print_exc()
+PYEOF
+    python /tmp/autoglm_start.py 2>&1
+    exit_code=$?
+    rm -f /tmp/autoglm_start.py 2>/dev/null || true
+    if [ $exit_code -eq 0 ]; then
+        exit 0
+    fi
 fi
 
 # 如果所有方式都失败
